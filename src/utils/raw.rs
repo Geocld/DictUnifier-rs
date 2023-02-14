@@ -24,9 +24,9 @@ pub fn from_ifo(ifo_path: &str, dest: &str) -> anyhow::Result<()> {
     println!("barename: {:?}", barename);
     
     // Unarchived dict.dz
-    Command::new("gunzip")
-      .args(["-f", "-S", ".dz", path_buf_to_str(&barename).add(".dict.dz").as_str()])
-      .output()?;
+    // Command::new("gunzip")
+    //   .args(["-f", "-S", ".dz", path_buf_to_str(&barename).add(".dict.dz").as_str()])
+    //   .output()?;
 
     let mut dic = Dictionary::new(
       path_buf_to_str(&barename).add(".ifo"), 
@@ -34,7 +34,9 @@ pub fn from_ifo(ifo_path: &str, dest: &str) -> anyhow::Result<()> {
       path_buf_to_str(&barename).add(".dict")
     );
 
+    dic.load_info()?;
     dic.load_idx()?;
+    dic.load_dict()?;
 
   }
   Ok(())
