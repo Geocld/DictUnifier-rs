@@ -7,7 +7,7 @@ use anyhow::{Result, Ok};
 
 #[path = "./html.rs"] mod html;
 
-use html::{html2text};
+use html::{ html2text, clean_xml };
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct Idx {
@@ -16,6 +16,16 @@ struct Idx {
   offset: u32,
   size: u32
 }
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Dict {
+  id: i32,
+  index: String,
+  offset: u32,
+  size: u32,
+  xml: String
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Info {
   version: String,
@@ -24,14 +34,6 @@ pub struct Info {
   bookname: String,
   sametypesequence: String
 }
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Dict {
-  id: i32,
-  index: String,
-  xml: String
-}
-
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Dictionary {
   ifo_file: String,
@@ -49,34 +51,60 @@ impl Idx {
 }
 
 impl Dict {
-  fn new(id: i32, index: String, xml: String) -> Self {
-    Dict { id, index, xml }
+  fn new(id: i32, index: String, offset: u32, size: u32, xml: String) -> Self {
+    Dict { id, index, offset, size, xml }
   }
 }
 
-fn cover_dict_data_to_xml(text: String, t: char) {
+fn cover_dict_data_to_xml(text: String, t: char) -> Result<String> {
   match t {
-    'h' => { // TODO: HTML
-      // let txt = html2text(&text);
-      // let txt_arr: Vec<&str> = txt.split("\n").collect();
-      // let result = txt_arr.into_iter().map(|t| {
-      // });
+    'h' => { // HTML
+      let html = html2text(&text);
+      let clean_html = clean_xml(&html);
+      let html_vec: Vec<&str> = clean_html.split("\n").collect();
+      let xml_vec: Vec<_> = html_vec.iter()
+                    .map(|s| {
+                      s.trim()
+                    })
+                    .filter(|s| {
+                      s.len() > 0
+                    })
+                    .map(|s| {
+                      format!("<p class=\"plaintext\">{}</p>", s)
+                    }).collect();
+      return Ok(xml_vec.join("\n"));
     }
-    'g' => {
-
+    'g' => { // Pango text markup language
+      return Ok(format!("<pre>{}</pre>", text));
     }
-    'x' => {}
-    _ => {}
+    'x' => { // xdxf language
+      // TODO: xdxfTransform
+      return Ok(format!("<pre>{}</pre>", text));
+    }
+    _ => {
+      let clean_text = clean_xml(&text);
+      let text_vec: Vec<_> = clean_text.split("\n").collect();
+      let res_vec: Vec<_> = text_vec.iter()
+                            .map(|s| {
+                              s.trim()
+                            }).filter(|s| {
+                              s.len() > 0
+                            }).map(|s| {
+                              format!("<p class=\"plaintext\">{}</p>", s)
+                            }).collect();
+      return Ok(res_vec.join("\n"));
+    }
   }
 }
 
-fn parse_dict_data(id: i32, buffer: Vec<u8>, types: &str) -> Result<()> {
+fn parse_dict_data_xml(buffer: Vec<u8>, types: &str) -> Result<Vec<String>> {
   let tps: Vec<char> = types.to_string().clone().chars().collect();
+  let mut res: Vec<String> = Vec::new();
+
   if tps.len() == 0 {
      // TODO
   } else {
     let mut pos = 0;
-    let mut res: Vec<Dict> = Vec::new();
 
     // TODO: use map
     for i in 0..tps.len() {
@@ -93,13 +121,13 @@ fn parse_dict_data(id: i32, buffer: Vec<u8>, types: &str) -> Result<()> {
               } else {
                 pos = buffer.len();
               }
-              res.push(Dict::new(id, String::from(""), String::from("<p class=\"error\"> DictUnifier: Media file is not supported. </p>")));
+              res.push(String::from("<p class=\"error\"> DictUnifier: Media file is not supported. </p>"));
             },
             'r' => { // Resource file
               while pos + l < buffer.len() && buffer[pos + l] != 0 {
                 l = l + 1;
               }
-              res.push(Dict::new(id, String::from(""), String::from("<p class=\"error\"> DictUnifier: Resource file is not supported. </p>")));
+              res.push(String::from("<p class=\"error\"> DictUnifier: Resource file is not supported. </p>"));
             },
             _ => {
               while pos + l < buffer.len() && buffer[pos + l] != 0 {
@@ -107,7 +135,8 @@ fn parse_dict_data(id: i32, buffer: Vec<u8>, types: &str) -> Result<()> {
               }
               let text_buf = buffer[pos..pos + l].to_owned();
               let text = String::from_utf8(text_buf)?;
-              println!("text: {}", text);
+              let xml = cover_dict_data_to_xml(text, *t)?;
+              res.push(xml);
             }
           }
         }
@@ -117,11 +146,9 @@ fn parse_dict_data(id: i32, buffer: Vec<u8>, types: &str) -> Result<()> {
         pos = next;
       }
     }
-
-    // println!("res: {:?}", res);
   }
 
-  Ok(())
+  Ok(res)
 }
 
 impl Dictionary {
@@ -203,49 +230,50 @@ impl Dictionary {
       let index = String::from_utf8(index_buf)?;
       let size = BigEndian::read_u16(&buffer[next - 2..next]);
 
-      // println!("index: {}", index);
-      // println!("size: {}", size);
-      // println!("offset: {}", offset);
-
       self.idx.push(Idx::new(id, index, offset as u32, size as u32));
 
       pos = next; // move to next word
       offset = offset + size as u32; // record offset
     }
 
-    // println!("idx: {:?}", self.idx);
-
     Ok(())
   }
 
   pub fn load_dict(&mut self) -> Result<()> {
-    println!("Total length of entries: {}", self.idx.len());
+    let total = self.idx.len();
+    println!("Total length of entries: {}", total);
 
     let f = File::open(&self.dict_file)?;
 
     let mut stream = BufReader::new(f);
     let mut buffer: Vec<u8> = vec![];
+    let mut result: Vec<Dict> = Vec::new();
 
     // Get the full stream buffer of idx file.
     stream.read_to_end(&mut buffer)?;
 
-    // println!("dict file buffer: {:?}", buffer);
-    for idx in 0..2 {
+
+    for idx in 0..total {
       // idx -> dict
       let idx_data = self.idx.get(idx);
-      println!("idx_data: {:?}", idx_data);
 
       if let Some(data) = idx_data {
         let offset = data.offset as usize;
         let size = data.size as usize;
         let buf = buffer[offset..offset + size].to_owned();
+        let xml = parse_dict_data_xml(buf, &self.info.sametypesequence)?;
 
-        parse_dict_data(idx as i32, buf, &self.info.sametypesequence)?;
-        
+        result.push(Dict::new(
+          idx as i32, 
+          data.index.clone(), 
+          data.offset, 
+          data.size, 
+          xml.join("\n")
+        ));
       }
       
     }
-
+    self.data = result;
 
     Ok(())
   }

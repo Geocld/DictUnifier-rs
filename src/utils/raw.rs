@@ -13,7 +13,7 @@ fn path_buf_to_str(path_buf: &PathBuf) -> String {
   path_buf.display().to_string()
 }
 
-fn convert(barename: &PathBuf) -> anyhow::Result<()> {
+fn _convert(_barename: &PathBuf) -> anyhow::Result<()> {
   Ok(())
 }
 
