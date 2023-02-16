@@ -98,15 +98,47 @@ fn cover_dict_data_to_xml(text: String, t: char) -> Result<String> {
 }
 
 fn parse_dict_data_xml(buffer: Vec<u8>, types: &str) -> Result<Vec<String>> {
-  let tps: Vec<char> = types.to_string().clone().chars().collect();
+  let tps: Vec<char> = types.to_string().chars().collect();
   let mut res: Vec<String> = Vec::new();
 
   if tps.len() == 0 {
-     // TODO
+    let mut pos = 0;
+    while pos < buffer.len() {
+      // String::from_utf8
+      let type_buf = buffer[pos..pos + 1].to_owned();
+      let tp = String::from_utf8(type_buf)?;
+      let tp_char: Vec<char> = tp.chars().collect();
+      pos += 1;
+      let mut l = 0;
+
+      let tp = tp_char.get(0);
+      if let Some(t) = tp {
+        match t {
+          'W'|'P'|'X' => { // Media file
+            l = BigEndian::read_u16(&buffer[pos - 2..pos]) as usize;
+            pos = pos + l + 4;
+            res.push(String::from("<p class=\"error\"> DictUnifier: Media file is not supported. </p>"));
+          },
+          'r' => { // Resource file
+            while pos + l < buffer.len() && buffer[pos + l] != 0 {
+              l = l + 1;
+            }
+            res.push(String::from("<p class=\"error\"> DictUnifier: Resource file is not supported. </p>"));
+          },
+          _ => {
+            while pos + l < buffer.len() && buffer[pos + l] != 0 {
+              l = l + 1;
+            }
+            let text_buf = buffer[pos..pos + l].to_owned();
+            let text = String::from_utf8(text_buf)?;
+            let xml = cover_dict_data_to_xml(text, *t)?;
+            res.push(xml);
+          }
+        }
+      }
+    }
   } else {
     let mut pos = 0;
-
-    // TODO: use map
     for i in 0..tps.len() {
       while pos < buffer.len() {
         let tp = tps.get(i);
