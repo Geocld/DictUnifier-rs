@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead, Read};
 use byteorder::{BigEndian, ByteOrder};
 use lazy_regex::*;
+use progress::{Bar};
 
 use anyhow::{Result, Ok};
 
@@ -10,7 +11,7 @@ use anyhow::{Result, Ok};
 use html::{ html2text, clean_xml };
 
 #[derive(Debug, Default, Clone, PartialEq)]
-struct Idx {
+pub struct Idx {
   id: i32,
   index: String,
   offset: u32,
@@ -18,12 +19,12 @@ struct Idx {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-struct Dict {
-  id: i32,
-  index: String,
+pub struct Dict {
+  pub id: i32,
+  pub index: String,
   offset: u32,
   size: u32,
-  xml: String
+  pub xml: String
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -31,7 +32,7 @@ pub struct Info {
   version: String,
   wordcount: i32,
   idxfilesize: u64,
-  bookname: String,
+  pub bookname: String,
   sametypesequence: String
 }
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -39,9 +40,9 @@ pub struct Dictionary {
   ifo_file: String,
   idx_file: String,
   dict_file: String,
-  idx: Vec<Idx>,
-  info: Info,
-  data: Vec<Dict>
+  pub idx: Vec<Idx>,
+  pub info: Info,
+  pub data: Vec<Dict>
 }
 
 impl Idx {
@@ -197,6 +198,7 @@ impl Dictionary {
   }
 
   pub fn load_info(&mut self) -> Result<()> {
+    println!("ifo_file: {:?}", self.ifo_file);
     let input = File::open(&self.ifo_file)?;
     let buffered = BufReader::new(input);
     let mut info = Info{ ..Default::default() };
@@ -284,8 +286,10 @@ impl Dictionary {
     // Get the full stream buffer of idx file.
     stream.read_to_end(&mut buffer)?;
 
+    let mut progress_bar = Bar::new();
+    progress_bar.set_job_title("Loading dict...");
 
-    for idx in 0..total {
+    for idx in 0..total + 1 {
       // idx -> dict
       let idx_data = self.idx.get(idx);
 
@@ -303,7 +307,9 @@ impl Dictionary {
           xml.join("\n")
         ));
       }
-      
+
+      let percent = ((idx as f32 / total as f32) * 100.0) as i32;
+      progress_bar.reach_percent(percent);
     }
     self.data = result;
 
